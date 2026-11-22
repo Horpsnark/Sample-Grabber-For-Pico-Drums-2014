@@ -1,0 +1,6 @@
+{
+  "name": "Drum Module Programmer",
+  "description": "Sample kit manager & bank programmer for Pico Drum and hardware drum modules with 64-file slots, 8.39MB memory meter, synthesized & local sample slots, category color-coding, audio editor, and drag-and-drop export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

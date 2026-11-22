@@ -1,0 +1,47 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --bg: #16171b;
+    --bg-alt: #1e2025;
+    --bg-raise: #2a2d34;
+    --bg-hover: #363a43;
+    --fg: #e4e6eb;
+    --fg-dim: #8b909a;
+    --accent: #4f8cff;
+    --border: #34373f;
+  }
+
+  html,
+  body {
+    background-color: #16171b;
+    color: #e4e6eb;
+    font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  .font-mono {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Custom sleek dark scrollbar matching GRAB64 dark theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e2025;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2a2d34;
+  border-radius: 4px;
+  border: 1px solid #34373f;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #363a43;
+}

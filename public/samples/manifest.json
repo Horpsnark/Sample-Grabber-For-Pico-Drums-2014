@@ -1,0 +1,302 @@
+[
+  {
+    "name": "Kick_Punch_01.wav",
+    "file": "/samples/Kick_Punch_01.wav"
+  },
+  {
+    "name": "Kick_Deep808_02.wav",
+    "file": "/samples/Kick_Deep808_02.wav"
+  },
+  {
+    "name": "Kick_Tight_03.wav",
+    "file": "/samples/Kick_Tight_03.wav"
+  },
+  {
+    "name": "Kick_Modular_04.wav",
+    "file": "/samples/Kick_Modular_04.wav"
+  },
+  {
+    "name": "Snare_Crisp_01.wav",
+    "file": "/samples/Snare_Crisp_01.wav"
+  },
+  {
+    "name": "Snare_909Type_02.wav",
+    "file": "/samples/Snare_909Type_02.wav"
+  },
+  {
+    "name": "Snare_Trap_03.wav",
+    "file": "/samples/Snare_Trap_03.wav"
+  },
+  {
+    "name": "Snare_Rimshot_04.wav",
+    "file": "/samples/Snare_Rimshot_04.wav"
+  },
+  {
+    "name": "Clap_HandClap_01.wav",
+    "file": "/samples/Clap_HandClap_01.wav"
+  },
+  {
+    "name": "Clap_Studio808_02.wav",
+    "file": "/samples/Clap_Studio808_02.wav"
+  },
+  {
+    "name": "Clap_Snap_03.wav",
+    "file": "/samples/Clap_Snap_03.wav"
+  },
+  {
+    "name": "Clap_GroupStack_04.wav",
+    "file": "/samples/Clap_GroupStack_04.wav"
+  },
+  {
+    "name": "Hat_Closed_01.wav",
+    "file": "/samples/Hat_Closed_01.wav"
+  },
+  {
+    "name": "Hat_Open_02.wav",
+    "file": "/samples/Hat_Open_02.wav"
+  },
+  {
+    "name": "Hat_Ticked_03.wav",
+    "file": "/samples/Hat_Ticked_03.wav"
+  },
+  {
+    "name": "Hat_Metallic_04.wav",
+    "file": "/samples/Hat_Metallic_04.wav"
+  },
+  {
+    "name": "Tom_High_01.wav",
+    "file": "/samples/Tom_High_01.wav"
+  },
+  {
+    "name": "Tom_Mid_02.wav",
+    "file": "/samples/Tom_Mid_02.wav"
+  },
+  {
+    "name": "Tom_Low_03.wav",
+    "file": "/samples/Tom_Low_03.wav"
+  },
+  {
+    "name": "Tom_Floor_04.wav",
+    "file": "/samples/Tom_Floor_04.wav"
+  },
+  {
+    "name": "Perc_WoodBlock_01.wav",
+    "file": "/samples/Perc_WoodBlock_01.wav"
+  },
+  {
+    "name": "Perc_Clave_02.wav",
+    "file": "/samples/Perc_Clave_02.wav"
+  },
+  {
+    "name": "Perc_FM_Bell_03.wav",
+    "file": "/samples/Perc_FM_Bell_03.wav"
+  },
+  {
+    "name": "Perc_Conga_04.wav",
+    "file": "/samples/Perc_Conga_04.wav"
+  },
+  {
+    "name": "Sub808_SubC1_01.wav",
+    "file": "/samples/Sub808_SubC1_01.wav"
+  },
+  {
+    "name": "Sub808_Saturated_02.wav",
+    "file": "/samples/Sub808_Saturated_02.wav"
+  },
+  {
+    "name": "Sub808_Glide_03.wav",
+    "file": "/samples/Sub808_Glide_03.wav"
+  },
+  {
+    "name": "Sub808_Heavy_04.wav",
+    "file": "/samples/Sub808_Heavy_04.wav"
+  },
+  {
+    "name": "Synth_ChordCmin_01.wav",
+    "file": "/samples/Synth_ChordCmin_01.wav"
+  },
+  {
+    "name": "Synth_Pluck_02.wav",
+    "file": "/samples/Synth_Pluck_02.wav"
+  },
+  {
+    "name": "Synth_Laser_03.wav",
+    "file": "/samples/Synth_Laser_03.wav"
+  },
+  {
+    "name": "Synth_Pad_04.wav",
+    "file": "/samples/Synth_Pad_04.wav"
+  },
+  {
+    "name": "Bass_SlapFunk_01.wav",
+    "file": "/samples/Bass_SlapFunk_01.wav"
+  },
+  {
+    "name": "Bass_AcidSaw_02.wav",
+    "file": "/samples/Bass_AcidSaw_02.wav"
+  },
+  {
+    "name": "Bass_DarkReese_03.wav",
+    "file": "/samples/Bass_DarkReese_03.wav"
+  },
+  {
+    "name": "Bass_SubMono_04.wav",
+    "file": "/samples/Bass_SubMono_04.wav"
+  },
+  {
+    "name": "Bass_Resonant_05.wav",
+    "file": "/samples/Bass_Resonant_05.wav"
+  },
+  {
+    "name": "Bass_SawtoothMoog_01.wav",
+    "file": "/samples/Bass_SawtoothMoog_01.wav"
+  },
+  {
+    "name": "Bass_SawtoothCyber_02.wav",
+    "file": "/samples/Bass_SawtoothCyber_02.wav"
+  },
+  {
+    "name": "Bass_SawtoothPluck_03.wav",
+    "file": "/samples/Bass_SawtoothPluck_03.wav"
+  },
+  {
+    "name": "Bass_SawtoothSub_04.wav",
+    "file": "/samples/Bass_SawtoothSub_04.wav"
+  },
+  {
+    "name": "Bass_Sawtooth80s_05.wav",
+    "file": "/samples/Bass_Sawtooth80s_05.wav"
+  },
+  {
+    "name": "Key_Rhodes_01.wav",
+    "file": "/samples/Key_Rhodes_01.wav"
+  },
+  {
+    "name": "Key_GrandPiano_02.wav",
+    "file": "/samples/Key_GrandPiano_02.wav"
+  },
+  {
+    "name": "Key_OrganDrawbar_03.wav",
+    "file": "/samples/Key_OrganDrawbar_03.wav"
+  },
+  {
+    "name": "Key_Clavinet_04.wav",
+    "file": "/samples/Key_Clavinet_04.wav"
+  },
+  {
+    "name": "Key_Wurlitzer_05.wav",
+    "file": "/samples/Key_Wurlitzer_05.wav"
+  },
+  {
+    "name": "Pad_WarmAtmos_01.wav",
+    "file": "/samples/Pad_WarmAtmos_01.wav"
+  },
+  {
+    "name": "Pad_DreamyAmbient_02.wav",
+    "file": "/samples/Pad_DreamyAmbient_02.wav"
+  },
+  {
+    "name": "Pad_VintageAnalog_03.wav",
+    "file": "/samples/Pad_VintageAnalog_03.wav"
+  },
+  {
+    "name": "Pad_EtherealCosmic_04.wav",
+    "file": "/samples/Pad_EtherealCosmic_04.wav"
+  },
+  {
+    "name": "Bell_CelestialChime_01.wav",
+    "file": "/samples/Bell_CelestialChime_01.wav"
+  },
+  {
+    "name": "Bell_FMCrystal_02.wav",
+    "file": "/samples/Bell_FMCrystal_02.wav"
+  },
+  {
+    "name": "Bell_Glocken_03.wav",
+    "file": "/samples/Bell_Glocken_03.wav"
+  },
+  {
+    "name": "Acid_Squelch303_01.wav",
+    "file": "/samples/Acid_Squelch303_01.wav"
+  },
+  {
+    "name": "Acid_ResonantSquare_02.wav",
+    "file": "/samples/Acid_ResonantSquare_02.wav"
+  },
+  {
+    "name": "Acid_DistortedDevil_03.wav",
+    "file": "/samples/Acid_DistortedDevil_03.wav"
+  },
+  {
+    "name": "Acid_AccentSlide_04.wav",
+    "file": "/samples/Acid_AccentSlide_04.wav"
+  },
+  {
+    "name": "Acid_FilterSweep_05.wav",
+    "file": "/samples/Acid_FilterSweep_05.wav"
+  },
+  {
+    "name": "Acid_SubHarmonic_06.wav",
+    "file": "/samples/Acid_SubHarmonic_06.wav"
+  },
+  {
+    "name": "Acid_CyberSquelch_07.wav",
+    "file": "/samples/Acid_CyberSquelch_07.wav"
+  },
+  {
+    "name": "Strings_Chamber_01.wav",
+    "file": "/samples/Strings_Chamber_01.wav"
+  },
+  {
+    "name": "Strings_Pizzicato_02.wav",
+    "file": "/samples/Strings_Pizzicato_02.wav"
+  },
+  {
+    "name": "Strings_Cello_03.wav",
+    "file": "/samples/Strings_Cello_03.wav"
+  },
+  {
+    "name": "Strings_Solina_04.wav",
+    "file": "/samples/Strings_Solina_04.wav"
+  },
+  {
+    "name": "Arp_Synthwave16th_01.wav",
+    "file": "/samples/Arp_Synthwave16th_01.wav"
+  },
+  {
+    "name": "Arp_AcidRolling_02.wav",
+    "file": "/samples/Arp_AcidRolling_02.wav"
+  },
+  {
+    "name": "Arp_NeoSoulChime_03.wav",
+    "file": "/samples/Arp_NeoSoulChime_03.wav"
+  },
+  {
+    "name": "Arp_TranceOctave_04.wav",
+    "file": "/samples/Arp_TranceOctave_04.wav"
+  },
+  {
+    "name": "Arp_CyberOstinato_05.wav",
+    "file": "/samples/Arp_CyberOstinato_05.wav"
+  },
+  {
+    "name": "Sequence_ModularOstinato_01.wav",
+    "file": "/samples/Sequence_ModularOstinato_01.wav"
+  },
+  {
+    "name": "Sequence_DeepTechnoGroove_02.wav",
+    "file": "/samples/Sequence_DeepTechnoGroove_02.wav"
+  },
+  {
+    "name": "Sequence_AcidSlide_03.wav",
+    "file": "/samples/Sequence_AcidSlide_03.wav"
+  },
+  {
+    "name": "Sequence_CyberLead_04.wav",
+    "file": "/samples/Sequence_CyberLead_04.wav"
+  },
+  {
+    "name": "Sequence_IndustrialEBM_05.wav",
+    "file": "/samples/Sequence_IndustrialEBM_05.wav"
+  }
+]
