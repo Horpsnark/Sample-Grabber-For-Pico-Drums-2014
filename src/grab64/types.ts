@@ -2,11 +2,18 @@ export interface LibraryEntry {
   id: string;
   name: string;        // filename with extension
   path: string;        // relative path inside library
-  categories: Set<string>;
+  categories: readonly string[];
   sizeBytes: number;
   sourceType: 'file' | 'url';
   file?: File;
   url?: string;
+}
+
+export interface LibraryState {
+  entries: LibraryEntry[];
+  byCategory: Map<string, LibraryEntry[]>;
+  categoryCounts: Record<string, number>;
+  byPath: Map<string, LibraryEntry>;
 }
 
 export interface SlotSample {

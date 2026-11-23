@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { X } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { BUDGET, CATEGORY_NAMES, MAX_SECONDS, SAMPLE_RATE } from '../grab64/constants';
 import { AudioMixer, loadSampleEx, slotBytes } from '../grab64/audioEngine';
-import { LibraryEntry, SlotSample } from '../grab64/types';
+import { LibraryEntry, LibraryState, SlotSample } from '../grab64/types';
 
 interface AuditionModalProps {
   open: boolean;
-  library: LibraryEntry[];
+  libraryState: LibraryState;
   slots: Array<SlotSample | null>;
   selectedSlotIdx: number | null;
   favorLarge: boolean;
@@ -16,9 +16,14 @@ interface AuditionModalProps {
   onClose: () => void;
 }
 
+const ROW_HEIGHT = 24;
+const VIEWPORT_ROWS_FALLBACK = 16;
+const OVERSCAN = 8;
+const MAX_DISPLAY_ROWS = 20000;
+
 export const AuditionModal: React.FC<AuditionModalProps> = ({
   open,
-  library,
+  libraryState,
   slots,
   selectedSlotIdx,
   favorLarge,
@@ -28,17 +33,21 @@ export const AuditionModal: React.FC<AuditionModalProps> = ({
   onClose,
 }) => {
   const [category, setCategory] = useState<string>('All');
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [autoPlay, setAutoPlay] = useState<boolean>(true);
   const [cursorIdx, setCursorIdx] = useState<number>(0);
+  const [scrollTop, setScrollTop] = useState<number>(0);
+  const [viewportHeight, setViewportHeight] = useState<number>(
+    ROW_HEIGHT * VIEWPORT_ROWS_FALLBACK
+  );
   const [infoText, setInfoText] = useState<string>('');
+
   const listRef = useRef<HTMLDivElement | null>(null);
-  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const audCacheRef = useRef<Map<string, Int16Array | null>>(new Map());
 
-  // Clear audition cache when library or length mode changes
   useEffect(() => {
     audCacheRef.current.clear();
-  }, [library, favorLarge]);
+  }, [libraryState, favorLarge]);
 
   const usedPaths = useMemo(() => {
     const set = new Set<string>();
@@ -48,28 +57,62 @@ export const AuditionModal: React.FC<AuditionModalProps> = ({
     return set;
   }, [slots]);
 
-  const filtered = useMemo(() => {
-    const items =
+  const { visibleItems, totalMatches } = useMemo(() => {
+    const source =
       category === 'All'
-        ? [...library]
-        : library.filter((entry) => entry.categories.has(category));
-    items.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-    return items;
-  }, [library, category]);
+        ? libraryState.entries
+        : libraryState.byCategory.get(category) ?? [];
+
+    const q = searchQuery.trim().toLowerCase();
+    let matched: LibraryEntry[];
+    if (q) {
+      matched = [];
+      for (let i = 0; i < source.length; i++) {
+        const entry = source[i];
+        if (entry.name.toLowerCase().includes(q)) {
+          matched.push(entry);
+        }
+      }
+    } else {
+      matched = source.slice();
+    }
+
+    const total = matched.length;
+    if (matched.length > MAX_DISPLAY_ROWS) {
+      matched = matched.slice(0, MAX_DISPLAY_ROWS);
+    }
+    matched.sort((a, b) => {
+      const an = a.name.toLowerCase();
+      const bn = b.name.toLowerCase();
+      return an < bn ? -1 : an > bn ? 1 : 0;
+    });
+    return { visibleItems: matched, totalMatches: total };
+  }, [libraryState, category, searchQuery]);
 
   useEffect(() => {
     if (open) {
       setCursorIdx(0);
-      setInfoText(`${filtered.length} samples`);
-      setTimeout(() => listRef.current?.focus(), 0);
+      setScrollTop(0);
+      if (listRef.current) {
+        listRef.current.scrollTop = 0;
+        setViewportHeight(listRef.current.clientHeight || ROW_HEIGHT * VIEWPORT_ROWS_FALLBACK);
+        listRef.current.focus();
+      }
+      if (totalMatches > MAX_DISPLAY_ROWS) {
+        setInfoText(
+          `Showing first ${MAX_DISPLAY_ROWS.toLocaleString()} of ${totalMatches.toLocaleString()} samples — filter by Category or Search`
+        );
+      } else {
+        setInfoText(`${totalMatches.toLocaleString()} samples`);
+      }
     }
-  }, [open, category, filtered.length]);
+  }, [open, totalMatches]);
 
   const catFor = useCallback(
     (entry: LibraryEntry): string => {
       if (category !== 'All') return category;
-      if (entry.categories.size > 0) {
-        return Array.from(entry.categories).sort()[0];
+      if (entry.categories.length > 0) {
+        return entry.categories[0];
       }
       return 'Any';
     },
@@ -114,33 +157,47 @@ export const AuditionModal: React.FC<AuditionModalProps> = ({
     [loadForAudition, mixer]
   );
 
+  const ensureCursorVisible = useCallback((idx: number) => {
+    const el = listRef.current;
+    if (!el) return;
+    const itemTop = idx * ROW_HEIGHT;
+    const itemBottom = itemTop + ROW_HEIGHT;
+    const viewTop = el.scrollTop;
+    const viewHeight = el.clientHeight || ROW_HEIGHT * VIEWPORT_ROWS_FALLBACK;
+    if (itemTop < viewTop) {
+      el.scrollTop = itemTop;
+    } else if (itemBottom > viewTop + viewHeight) {
+      el.scrollTop = itemBottom - viewHeight;
+    }
+  }, []);
+
   const selectIndex = useCallback(
     (idx: number, forcePlay = false) => {
-      if (idx < 0 || idx >= filtered.length) return;
+      if (idx < 0 || idx >= visibleItems.length) return;
       setCursorIdx(idx);
-      itemRefs.current[idx]?.scrollIntoView({ block: 'nearest' });
+      ensureCursorVisible(idx);
       if (autoPlay || forcePlay) {
-        void playEntry(filtered[idx]);
+        void playEntry(visibleItems[idx]);
       }
     },
-    [filtered, autoPlay, playEntry]
+    [visibleItems, ensureCursorVisible, autoPlay, playEntry]
   );
 
   const putInSlot = useCallback(
     async (slotIdx: number) => {
-      const entry = filtered[cursorIdx];
+      const entry = visibleItems[cursorIdx];
       if (!entry) return;
       const ok = await onPutSample(slotIdx, entry, catFor(entry));
       if (ok) {
         setInfoText(`${entry.name} -> slot ${slotIdx + 1}`);
-        if (cursorIdx + 1 < filtered.length) {
+        if (cursorIdx + 1 < visibleItems.length) {
           selectIndex(cursorIdx + 1);
         }
       } else {
         setInfoText("Won't fit in the remaining size budget");
       }
     },
-    [filtered, cursorIdx, onPutSample, catFor, selectIndex]
+    [visibleItems, cursorIdx, onPutSample, catFor, selectIndex]
   );
 
   const addNextEmpty = useCallback(async () => {
@@ -161,10 +218,10 @@ export const AuditionModal: React.FC<AuditionModalProps> = ({
   }, [selectedSlotIdx, putInSlot]);
 
   const pickRandom = useCallback(() => {
-    if (filtered.length === 0) return;
-    const nextIdx = Math.floor(Math.random() * filtered.length);
+    if (visibleItems.length === 0) return;
+    const nextIdx = Math.floor(Math.random() * visibleItems.length);
     selectIndex(nextIdx, true);
-  }, [filtered.length, selectIndex]);
+  }, [visibleItems.length, selectIndex]);
 
   const handleClose = () => {
     mixer.stopAll();
@@ -177,13 +234,13 @@ export const AuditionModal: React.FC<AuditionModalProps> = ({
       handleClose();
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      selectIndex(Math.min(filtered.length - 1, cursorIdx + 1));
+      selectIndex(Math.min(visibleItems.length - 1, cursorIdx + 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       selectIndex(Math.max(0, cursorIdx - 1));
     } else if (e.key === ' ') {
       e.preventDefault();
-      void playEntry(filtered[cursorIdx]);
+      void playEntry(visibleItems[cursorIdx]);
     } else if (e.key === 'Enter') {
       e.preventDefault();
       void addNextEmpty();
@@ -192,12 +249,19 @@ export const AuditionModal: React.FC<AuditionModalProps> = ({
 
   if (!open) return null;
 
+  // Virtual window calculation — keeps DOM node count ~35 even for 20k+ rows
+  const totalHeight = visibleItems.length * ROW_HEIGHT;
+  const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+  const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT) + OVERSCAN * 2;
+  const endIdx = Math.min(visibleItems.length, startIdx + visibleCount);
+  const windowSlice = visibleItems.slice(startIdx, endIdx);
+
   return (
     <div className="fixed inset-0 z-40 bg-black/60 flex items-center justify-center p-4">
       <div
         role="dialog"
         aria-label="GRAB64 - Audition"
-        className="w-full max-w-[520px] h-[540px] bg-[#16171b] border border-[#34373f] rounded flex flex-col overflow-hidden"
+        className="w-full max-w-[540px] h-[560px] bg-[#16171b] border border-[#34373f] rounded flex flex-col overflow-hidden"
       >
         {/* Header */}
         <div className="px-3 py-2 bg-[#1e2025] border-b border-[#34373f] flex items-center justify-between">
@@ -212,7 +276,7 @@ export const AuditionModal: React.FC<AuditionModalProps> = ({
         </div>
 
         {/* Category + Auto-play */}
-        <div className="px-3 py-2 flex items-center gap-3 border-b border-[#34373f] text-xs">
+        <div className="px-3 py-2 flex flex-wrap items-center gap-3 border-b border-[#34373f] text-xs">
           <label className="flex items-center gap-2 text-[#e4e6eb]">
             <span>Category:</span>
             <select
@@ -220,10 +284,10 @@ export const AuditionModal: React.FC<AuditionModalProps> = ({
               onChange={(e) => setCategory(e.target.value)}
               className="h-7 px-2 bg-[#1e2025] border border-[#34373f] rounded text-xs text-[#e4e6eb] outline-none focus:border-[#4f8cff]"
             >
-              <option value="All">All</option>
+              <option value="All">All ({libraryState.entries.length.toLocaleString()})</option>
               {CATEGORY_NAMES.map((cat) => (
                 <option key={cat} value={cat}>
-                  {cat}
+                  {cat} ({(libraryState.categoryCounts[cat] ?? 0).toLocaleString()})
                 </option>
               ))}
             </select>
@@ -238,43 +302,66 @@ export const AuditionModal: React.FC<AuditionModalProps> = ({
             />
             <span>Auto-play on select</span>
           </label>
+
+          <div className="relative flex-1 min-w-[140px]">
+            <Search className="w-3 h-3 text-[#8b909a] absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search filename..."
+              className="w-full h-7 pl-6 pr-2 bg-[#1e2025] border border-[#34373f] focus:border-[#4f8cff] rounded text-xs text-[#e4e6eb] placeholder-[#8b909a] outline-none"
+            />
+          </div>
         </div>
 
-        {/* Sample List */}
+        {/* Virtualized Sample List */}
         <div
           ref={listRef}
           tabIndex={0}
           onKeyDown={handleKeyDown}
-          className="flex-1 m-2 bg-[#1e2025] border border-[#34373f] rounded overflow-y-auto outline-none focus:border-[#4f8cff]"
+          onScroll={(e) => {
+            const target = e.currentTarget;
+            setScrollTop(target.scrollTop);
+            setViewportHeight(target.clientHeight);
+          }}
+          className="flex-1 m-2 bg-[#1e2025] border border-[#34373f] rounded overflow-y-auto outline-none focus:border-[#4f8cff] relative"
         >
-          {filtered.length === 0 ? (
+          {visibleItems.length === 0 ? (
             <div className="p-4 text-xs text-[#8b909a]">
-              No samples in this category.
+              No matching samples in this category.
             </div>
           ) : (
-            filtered.map((entry, idx) => {
-              const isSelected = idx === cursorIdx;
-              const isUsed = usedPaths.has(entry.path);
-              return (
-                <button
-                  key={entry.id}
-                  ref={(el) => {
-                    itemRefs.current[idx] = el;
-                  }}
-                  type="button"
-                  onClick={() => selectIndex(idx)}
-                  onDoubleClick={() => void addNextEmpty()}
-                  className={`w-full px-2.5 py-1 text-left font-mono text-xs flex items-center gap-1.5 cursor-pointer truncate ${
-                    isSelected
-                      ? 'bg-[#4f8cff] text-white'
-                      : 'hover:bg-[#2a2d34] text-[#e4e6eb]'
-                  }`}
-                >
-                  <span className="w-3 shrink-0">{isUsed ? '*' : ' '}</span>
-                  <span className="truncate">{entry.name}</span>
-                </button>
-              );
-            })
+            <div style={{ height: `${totalHeight}px`, position: 'relative' }}>
+              {windowSlice.map((entry, offset) => {
+                const idx = startIdx + offset;
+                const isSelected = idx === cursorIdx;
+                const isUsed = usedPaths.has(entry.path);
+                return (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => selectIndex(idx)}
+                    onDoubleClick={() => void addNextEmpty()}
+                    style={{
+                      position: 'absolute',
+                      top: `${idx * ROW_HEIGHT}px`,
+                      left: 0,
+                      right: 0,
+                      height: `${ROW_HEIGHT}px`,
+                    }}
+                    className={`px-2.5 text-left font-mono text-xs flex items-center gap-1.5 cursor-pointer truncate ${
+                      isSelected
+                        ? 'bg-[#4f8cff] text-white'
+                        : 'hover:bg-[#2a2d34] text-[#e4e6eb]'
+                    }`}
+                  >
+                    <span className="w-3 shrink-0">{isUsed ? '*' : ' '}</span>
+                    <span className="truncate">{entry.name}</span>
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
 
@@ -293,7 +380,7 @@ export const AuditionModal: React.FC<AuditionModalProps> = ({
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => void playEntry(filtered[cursorIdx])}
+              onClick={() => void playEntry(visibleItems[cursorIdx])}
               className="h-7 px-3 bg-[#2a2d34] hover:bg-[#363a43] border border-[#34373f] rounded text-xs text-[#e4e6eb] cursor-pointer"
             >
               Play

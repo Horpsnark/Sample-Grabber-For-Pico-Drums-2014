@@ -3,7 +3,6 @@ import { X } from 'lucide-react';
 import {
   AUTOFILL_PLAN,
   BUDGET,
-  CATEGORY_NAMES,
   MAX_SECONDS,
   MAXIMISE_TIME,
   MIN_SLOT_BYTES,
@@ -14,8 +13,10 @@ import {
 } from './grab64/constants';
 import {
   AudioMixer,
+  buildLibraryState,
   clearDecodedAudioCache,
   cleanName,
+  createEmptyLibraryState,
   loadBuiltinLibrary,
   loadSampleEx,
   scanDataTransferToLibrary,
@@ -29,7 +30,12 @@ import {
   getNextZipNumberInDirectory,
   triggerBlobDownload,
 } from './grab64/zipExport';
-import { LibraryEntry, NoticeMessage, SlotSample } from './grab64/types';
+import {
+  LibraryEntry,
+  LibraryState,
+  NoticeMessage,
+  SlotSample,
+} from './grab64/types';
 import { TopToolbar } from './components/TopToolbar';
 import { SlotsTable } from './components/SlotsTable';
 import { ControlSidebar } from './components/ControlSidebar';
@@ -77,7 +83,9 @@ function calcBaseBytes(slots: Array<SlotSample | null>): number {
 }
 
 export function App() {
-  const [library, setLibrary] = useState<LibraryEntry[]>([]);
+  const [libraryState, setLibraryState] = useState<LibraryState>(
+    createEmptyLibraryState
+  );
   const [slots, setSlots] = useState<Array<SlotSample | null>>(
     () => Array(NUM_SLOTS).fill(null)
   );
@@ -132,34 +140,12 @@ export function App() {
     };
   }, [mixer]);
 
-  // Set non-standard webkitdirectory attribute on hidden folder input
   useEffect(() => {
     if (folderInputRef.current) {
       folderInputRef.current.setAttribute('webkitdirectory', '');
       folderInputRef.current.setAttribute('directory', '');
     }
   }, []);
-
-  const libraryByPath = useMemo(() => {
-    const map = new Map<string, LibraryEntry>();
-    for (const entry of library) {
-      map.set(entry.path, entry);
-    }
-    return map;
-  }, [library]);
-
-  const categoryCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const cat of CATEGORY_NAMES) {
-      counts[cat] = 0;
-    }
-    for (const entry of library) {
-      for (const cat of entry.categories) {
-        if (cat in counts) counts[cat] += 1;
-      }
-    }
-    return counts;
-  }, [library]);
 
   const filledCount = useMemo(
     () => slots.filter((s) => s !== null).length,
@@ -169,9 +155,13 @@ export function App() {
   const usedBytes = useMemo(() => calcUsedBytes(slots), [slots]);
 
   const applyNewLibrary = useCallback(
-    (entries: LibraryEntry[], label?: string) => {
+    async (entries: LibraryEntry[], label?: string) => {
       clearDecodedAudioCache();
-      setLibrary(entries);
+      setStatusText(`Indexing ${entries.length.toLocaleString()} samples...`);
+      const nextState = await buildLibraryState(entries, (indexed) => {
+        setStatusText(`Indexing... ${indexed.toLocaleString()} / ${entries.length.toLocaleString()}`);
+      });
+      setLibraryState(nextState);
       if (entries.length === 0) {
         showNotice(
           'error',
@@ -180,7 +170,7 @@ export function App() {
       } else {
         showNotice(
           'success',
-          label ?? `Loaded ${entries.length} samples into library.`
+          label ?? `Loaded ${entries.length.toLocaleString()} samples into library.`
         );
       }
     },
@@ -202,12 +192,16 @@ export function App() {
         ).showDirectoryPicker({ mode: 'read' });
         setBusy(true);
         setStatusText('Scanning sample folder...');
-        const entries = await scanDirectoryHandleToLibrary(dirHandle);
-        applyNewLibrary(entries, `Loaded ${entries.length} samples from "${dirHandle.name}".`);
+        const entries = await scanDirectoryHandleToLibrary(dirHandle, (count) => {
+          setStatusText(`Scanning... ${count.toLocaleString()} samples found`);
+        });
+        await applyNewLibrary(
+          entries,
+          `Loaded ${entries.length.toLocaleString()} samples from "${dirHandle.name}".`
+        );
         return;
       } catch (err) {
         if ((err as Error)?.name === 'AbortError') return;
-        // Fall through to <input webkitdirectory>
       } finally {
         setBusy(false);
         setStatusText(null);
@@ -222,23 +216,41 @@ export function App() {
   }, []);
 
   const handleFolderInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files;
       if (!files || files.length === 0) return;
-      const entries = scanFilesToLibrary(files);
-      applyNewLibrary(entries);
-      e.target.value = '';
+      setBusy(true);
+      setStatusText('Scanning selected folder...');
+      try {
+        const entries = await scanFilesToLibrary(files, (count) => {
+          setStatusText(`Scanning... ${count.toLocaleString()} samples found`);
+        });
+        await applyNewLibrary(entries);
+      } finally {
+        setBusy(false);
+        setStatusText(null);
+        e.target.value = '';
+      }
     },
     [applyNewLibrary]
   );
 
   const handleFilesInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files;
       if (!files || files.length === 0) return;
-      const entries = scanFilesToLibrary(files);
-      applyNewLibrary(entries);
-      e.target.value = '';
+      setBusy(true);
+      setStatusText('Scanning selected files...');
+      try {
+        const entries = await scanFilesToLibrary(files, (count) => {
+          setStatusText(`Scanning... ${count.toLocaleString()} samples found`);
+        });
+        await applyNewLibrary(entries);
+      } finally {
+        setBusy(false);
+        setStatusText(null);
+        e.target.value = '';
+      }
     },
     [applyNewLibrary]
   );
@@ -248,7 +260,10 @@ export function App() {
     setStatusText('Loading built-in sample library...');
     try {
       const entries = await loadBuiltinLibrary();
-      applyNewLibrary(entries, `Loaded ${entries.length} built-in studio samples.`);
+      await applyNewLibrary(
+        entries,
+        `Loaded ${entries.length} built-in studio samples.`
+      );
     } catch {
       showNotice('error', 'Failed to load built-in sample library.');
     } finally {
@@ -292,8 +307,13 @@ export function App() {
       setBusy(true);
       setStatusText('Scanning dropped files...');
       try {
-        const entries = await scanDataTransferToLibrary(e.dataTransfer);
-        applyNewLibrary(entries);
+        const entries = await scanDataTransferToLibrary(
+          e.dataTransfer,
+          (count) => {
+            setStatusText(`Scanning... ${count.toLocaleString()} samples found`);
+          }
+        );
+        await applyNewLibrary(entries);
       } catch {
         showNotice('error', 'Could not read dropped files.');
       } finally {
@@ -315,13 +335,23 @@ export function App() {
       for (const s of currentSlots) {
         if (s) used.add(s.path);
       }
-      const pool =
+      const source =
         cat === 'Any'
-          ? library
-          : library.filter((entry) => entry.categories.has(cat));
-      return pool.filter((entry) => !used.has(entry.path));
+          ? libraryState.entries
+          : libraryState.byCategory.get(cat) ?? [];
+
+      if (used.size === 0) {
+        return source.slice();
+      }
+      const out: LibraryEntry[] = [];
+      for (let i = 0; i < source.length; i++) {
+        if (!used.has(source[i].path)) {
+          out.push(source[i]);
+        }
+      }
+      return out;
     },
-    [library]
+    [libraryState]
   );
 
   const putSampleIntoArray = useCallback(
@@ -401,10 +431,11 @@ export function App() {
               still.push(i);
               continue;
             }
-            const entry = libraryByPath.get(s.path);
+            const entry = libraryState.byPath.get(s.path);
             if (!entry) continue;
 
-            const secs = (Math.floor((target - WAV_HEADER) / 2) + 1) / SAMPLE_RATE;
+            const secs =
+              (Math.floor((target - WAV_HEADER) / 2) + 1) / SAMPLE_RATE;
             const res = await loadSampleEx(entry, secs, target, ctx);
             if (!res || res.data.length < s.data.length) continue;
 
@@ -419,7 +450,7 @@ export function App() {
 
       return next;
     },
-    [libraryByPath, mixer]
+    [libraryState.byPath, mixer]
   );
 
   const handleToggleFavor = useCallback(async () => {
@@ -438,8 +469,11 @@ export function App() {
 
   const handleAddFour = useCallback(
     async (cat: string) => {
-      if (library.length === 0) {
-        showNotice('info', 'Choose a sample folder or load built-in samples first.');
+      if (libraryState.entries.length === 0) {
+        showNotice(
+          'info',
+          'Choose a sample folder or load built-in samples first.'
+        );
         return;
       }
 
@@ -453,7 +487,7 @@ export function App() {
       }
 
       const pool = getCandidates(cat, slots, new Set());
-      weightedShuffle(pool, favorLarge);
+      weightedShuffle(pool, favorLarge, 128);
       if (pool.length === 0) {
         showNotice('info', `No unused '${cat}' samples in your library.`);
         return;
@@ -481,7 +515,15 @@ export function App() {
         setStatusText(null);
       }
     },
-    [library.length, slots, getCandidates, favorLarge, putSampleIntoArray, rebalanceArray, showNotice]
+    [
+      libraryState.entries.length,
+      slots,
+      getCandidates,
+      favorLarge,
+      putSampleIntoArray,
+      rebalanceArray,
+      showNotice,
+    ]
   );
 
   const buildAutofillBank = useCallback(
@@ -494,14 +536,20 @@ export function App() {
 
       for (const [cat, count] of AUTOFILL_PLAN) {
         const pool = getCandidates(cat, working, excludeSet);
-        weightedShuffle(pool, isFavorLarge);
+        weightedShuffle(pool, isFavorLarge, Math.max(64, count * 16));
         for (let k = 0; k < count; k++) {
           const emptyIdx = working.findIndex((s) => s === null);
           if (emptyIdx === -1 || pool.length === 0) break;
           while (pool.length > 0) {
             const entry = pool.pop()!;
             if (
-              await putSampleIntoArray(emptyIdx, entry, cat, working, isFavorLarge)
+              await putSampleIntoArray(
+                emptyIdx,
+                entry,
+                cat,
+                working,
+                isFavorLarge
+              )
             ) {
               break;
             }
@@ -510,7 +558,7 @@ export function App() {
       }
 
       const anyPool = getCandidates('Any', working, excludeSet);
-      weightedShuffle(anyPool, isFavorLarge);
+      weightedShuffle(anyPool, isFavorLarge, 512);
       for (let i = 0; i < working.length; i++) {
         if (working[i] !== null) continue;
         while (anyPool.length > 0) {
@@ -529,8 +577,11 @@ export function App() {
   );
 
   const handleAutofill = useCallback(async () => {
-    if (library.length === 0) {
-      showNotice('info', 'Choose a sample folder or load built-in samples first.');
+    if (libraryState.entries.length === 0) {
+      showNotice(
+        'info',
+        'Choose a sample folder or load built-in samples first.'
+      );
       return;
     }
 
@@ -543,7 +594,13 @@ export function App() {
       setBusy(false);
       setStatusText(null);
     }
-  }, [library.length, buildAutofillBank, slots, favorLarge, showNotice]);
+  }, [
+    libraryState.entries.length,
+    buildAutofillBank,
+    slots,
+    favorLarge,
+    showNotice,
+  ]);
 
   const handlePreview = useCallback(
     (idx: number | null) => {
@@ -559,14 +616,17 @@ export function App() {
   const handleReroll = useCallback(
     async (idx: number | null) => {
       if (idx === null) return;
-      if (library.length === 0) {
-        showNotice('info', 'Choose a sample folder or load built-in samples first.');
+      if (libraryState.entries.length === 0) {
+        showNotice(
+          'info',
+          'Choose a sample folder or load built-in samples first.'
+        );
         return;
       }
       const old = slots[idx];
       const cat = old ? old.cat : 'Any';
       const pool = getCandidates(cat, slots, new Set());
-      weightedShuffle(pool, favorLarge);
+      weightedShuffle(pool, favorLarge, 64);
       if (pool.length === 0) {
         showNotice('info', `No unused '${cat}' samples left to re-roll.`);
         return;
@@ -593,7 +653,15 @@ export function App() {
         setBusy(false);
       }
     },
-    [library.length, slots, getCandidates, favorLarge, putSampleIntoArray, rebalanceArray, showNotice]
+    [
+      libraryState.entries.length,
+      slots,
+      getCandidates,
+      favorLarge,
+      putSampleIntoArray,
+      rebalanceArray,
+      showNotice,
+    ]
   );
 
   const handleClearSlot = useCallback(
@@ -705,8 +773,11 @@ export function App() {
 
   const handleBatchStart = useCallback(
     async (count: number) => {
-      if (library.length === 0) {
-        showNotice('info', 'Choose a sample folder or load built-in samples first.');
+      if (libraryState.entries.length === 0) {
+        showNotice(
+          'info',
+          'Choose a sample folder or load built-in samples first.'
+        );
         setBatchOpen(false);
         return;
       }
@@ -749,7 +820,7 @@ export function App() {
           setStatusText(`Batch: ${made.length}/${count} packs written`);
 
           if (res.count < NUM_SLOTS) {
-            break; // Library ran out of unused samples
+            break;
           }
         }
 
@@ -782,7 +853,7 @@ export function App() {
       }
     },
     [
-      library.length,
+      libraryState.entries.length,
       exportDirHandle,
       nextZipNum,
       buildAutofillBank,
@@ -799,12 +870,11 @@ export function App() {
       onDrop={handleDrop}
       className="h-screen w-screen bg-[#16171b] text-[#e4e6eb] flex flex-col overflow-hidden relative"
     >
-      {/* Hidden native file inputs for folder & file selection */}
       <input
         ref={folderInputRef}
         type="file"
         multiple
-        onChange={handleFolderInputChange}
+        onChange={(e) => void handleFolderInputChange(e)}
         className="hidden"
       />
       <input
@@ -812,12 +882,12 @@ export function App() {
         type="file"
         multiple
         accept=".wav,.flac,.aif,.aiff,.ogg,.mp3,.m4a"
-        onChange={handleFilesInputChange}
+        onChange={(e) => void handleFilesInputChange(e)}
         className="hidden"
       />
 
       <TopToolbar
-        libraryCount={library.length}
+        libraryCount={libraryState.entries.length}
         statusText={statusText}
         busy={busy}
         onChooseFolder={() => void handleChooseFolder()}
@@ -826,7 +896,6 @@ export function App() {
         onStopAudio={() => mixer.stopAll()}
       />
 
-      {/* Main Split Workspace */}
       <main className="flex-1 min-h-0 p-2.5 flex flex-col lg:flex-row gap-2.5 overflow-hidden">
         <SlotsTable
           slots={slots}
@@ -838,7 +907,7 @@ export function App() {
         />
 
         <ControlSidebar
-          categoryCounts={categoryCounts}
+          categoryCounts={libraryState.categoryCounts}
           favorLarge={favorLarge}
           filledCount={filledCount}
           usedBytes={usedBytes}
@@ -850,7 +919,7 @@ export function App() {
           onAddFour={(cat) => void handleAddFour(cat)}
           onToggleFavor={() => void handleToggleFavor()}
           onOpenAudition={() => {
-            if (library.length === 0) {
+            if (libraryState.entries.length === 0) {
               showNotice(
                 'info',
                 'Choose a sample folder or load built-in samples first.'
@@ -866,7 +935,7 @@ export function App() {
           onClearAll={handleClearAll}
           onExportZip={handleExportZipClick}
           onOpenBatch={() => {
-            if (library.length === 0) {
+            if (libraryState.entries.length === 0) {
               showNotice(
                 'info',
                 'Choose a sample folder or load built-in samples first.'
@@ -879,7 +948,6 @@ export function App() {
         />
       </main>
 
-      {/* Inline Toast Notice */}
       {notice && (
         <div
           role="status"
@@ -902,7 +970,6 @@ export function App() {
         </div>
       )}
 
-      {/* Drag & Drop Overlay */}
       {isDragging && (
         <div className="fixed inset-0 z-50 bg-[#16171b]/85 border-2 border-dashed border-[#4f8cff] m-3 rounded flex flex-col items-center justify-center pointer-events-none">
           <p className="text-sm font-medium text-[#e4e6eb]">
@@ -914,10 +981,9 @@ export function App() {
         </div>
       )}
 
-      {/* Audition Window */}
       <AuditionModal
         open={auditionOpen}
-        library={library}
+        libraryState={libraryState}
         slots={slots}
         selectedSlotIdx={selectedIdx}
         favorLarge={favorLarge}
@@ -927,7 +993,6 @@ export function App() {
         onClose={() => setAuditionOpen(false)}
       />
 
-      {/* Batch Export Dialog */}
       <BatchExportModal
         open={batchOpen}
         running={batchRunning}
@@ -936,7 +1001,6 @@ export function App() {
         onClose={() => setBatchOpen(false)}
       />
 
-      {/* Confirm Incomplete Export Dialog */}
       <ConfirmDialog
         open={confirmIncompleteOpen}
         title="Not full"

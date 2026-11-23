@@ -19,6 +19,7 @@ Features
 
 Output format is set by the constants below -- change them if needed.
 """
+import heapq
 import io
 import math
 import os
@@ -154,22 +155,54 @@ FAVOR_STRENGTH = 1.0       # 0 = no preference, 1 = pick odds proportional to (1
 MIN_WEIGHT_BYTES = 4000    # tiny files are treated as at least this big when weighting
 AUDIO_EXT = (".wav", ".flac", ".aif", ".aiff", ".ogg")
 
+_TOKEN_SPLIT_RE = re.compile(r"[^a-z0-9]+")
+_EXACT_WORD_TO_CATS = {}
+_SUBSTR_WORDS = []
+_PHRASE_WORDS = []
+for _cat, _words in CATEGORIES.items():
+    for _w in _words:
+        if " " in _w:
+            _PHRASE_WORDS.append((tuple(_w.split()), _cat))
+        else:
+            _EXACT_WORD_TO_CATS.setdefault(_w, []).append(_cat)
+            if len(_w) > 3:
+                _SUBSTR_WORDS.append((_w, _cat))
+
+_TOKEN_CAT_CACHE = {}
+
+
+def _cats_for_token(tok):
+    cached = _TOKEN_CAT_CACHE.get(tok)
+    if cached is not None:
+        return cached
+    hits = []
+    exact = _EXACT_WORD_TO_CATS.get(tok)
+    if exact:
+        hits.extend(exact)
+    if len(tok) > 3:
+        for w, cat in _SUBSTR_WORDS:
+            if w != tok and w in tok:
+                hits.append(cat)
+    res = tuple(hits)
+    if len(_TOKEN_CAT_CACHE) < 120000:
+        _TOKEN_CAT_CACHE[tok] = res
+    return res
+
+
 def categorise(path):
-    """Return set of categories matched by file/folder name tokens."""
-    tokens = [t for t in re.split(r"[^a-z0-9]+", path.lower()) if t]
+    """Return set/frozenset of categories matched by file/folder name tokens."""
+    tokens = [t for t in _TOKEN_SPLIT_RE.split(path.lower()) if t]
     tokset = set(tokens)
     found = set()
-    
-    for cat, words in CATEGORIES.items():
-        for w in words:
-            if " " in w:
-                if all(part in tokset for part in w.split()):
-                    found.add(cat)
-            else:
-                for t in tokens:
-                    if t == w or (len(w) > 3 and w in t):
-                        found.add(cat)
-    
+
+    for t in tokset:
+        for cat in _cats_for_token(t):
+            found.add(cat)
+
+    for parts, cat in _PHRASE_WORDS:
+        if all(part in tokset for part in parts):
+            found.add(cat)
+
     # avoid double-tagging where one name contains another
     if "Melody Loops" in found:
         found.discard("Melodic")
@@ -180,16 +213,50 @@ def categorise(path):
     return found
 
 
-def scan_library(folder):
-    """Find supported audio files and categorise them by folder/file name."""
+def scan_library(folder, progress_cb=None):
+    """Find supported audio files and categorise them by folder/file name.
+    Uses iterative os.scandir() and caches file sizes to scale to 380k+ samples."""
     library = []
-    for root, _, files in os.walk(folder):
-        for name in files:
-            if name.lower().endswith(AUDIO_EXT):
-                path = os.path.join(root, name)
-                categories = categorise(os.path.relpath(path, folder))
-                library.append((path, categories))
-    return library
+    size_cache = {}
+    cat_index = {cat: [] for cat in CATEGORIES}
+    path_cats = {}
+    cat_intern = {}
+    stack = [folder]
+    folder_len = len(folder.rstrip("\\/"))
+
+    while stack:
+        cur_dir = stack.pop()
+        try:
+            with os.scandir(cur_dir) as it:
+                for entry in it:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(entry.path)
+                        elif entry.is_file(follow_symlinks=False):
+                            name_lower = entry.name.lower()
+                            if name_lower.endswith(AUDIO_EXT):
+                                path = entry.path
+                                try:
+                                    sz = entry.stat(follow_symlinks=False).st_size
+                                except OSError:
+                                    sz = MIN_WEIGHT_BYTES
+                                size_cache[path] = sz
+                                rel = path[folder_len + 1:] if len(path) > folder_len else entry.name
+                                cats = categorise(rel)
+                                fc = frozenset(cats)
+                                fc = cat_intern.setdefault(fc, fc)
+                                library.append((path, fc))
+                                path_cats[path] = fc
+                                for cat in fc:
+                                    cat_index[cat].append(path)
+                                if progress_cb and len(library) % 2500 == 0:
+                                    progress_cb(len(library))
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+
+    return library, size_cache, cat_index, path_cats
 
 
 def load_sample_ex(path, max_seconds, byte_limit):
@@ -317,6 +384,8 @@ class App(tk.Tk):
         h = min(900, self.winfo_screenheight() - 100)
         self.geometry(f"{w}x{h}+20+20")
         self.library = []
+        self.cat_index = {cat: [] for cat in CATEGORIES}
+        self.path_cats = {}
         self.slots = [None] * NUM_SLOTS
         self.mixer = Mixer()
         self._aud_win = None
@@ -324,6 +393,7 @@ class App(tk.Tk):
         self._aud_cache = {}
         self.favor_large = False   # default: favour smaller samples
         self._size_cache = {}
+        self._scanning = False
         self.exclude = set()      # paths already used by earlier packs in a batch
         self.out_folder = None    # where sequential zips are saved
         self._build_ui()
@@ -403,17 +473,47 @@ class App(tk.Tk):
         self.update_budget()
 
     def choose_folder(self):
+        if self._scanning:
+            return
         folder = filedialog.askdirectory(title="Select your sample library folder")
         if not folder:
             return
-        self.library = scan_library(folder)
-        self.lib_label.config(text=f"  {len(self.library)} samples found")
-        self._aud_cache.clear()
-        if self._aud_win is not None and self._aud_win.winfo_exists() and self._aud_refill:
-            self._aud_refill()
-        for cat, b in self.cat_buttons.items():
-            n = sum(1 for _, cs in self.library if cat in cs)
-            b.config(text=f"{cat} ({n})")
+        self._scanning = True
+        self.lib_label.config(text="  Scanning folder...")
+        self.config(cursor="watch")
+
+        def on_progress(count):
+            self.after(0, lambda c=count: self.lib_label.config(text=f"  Scanning... {c:,} samples found"))
+
+        def worker():
+            try:
+                res = scan_library(folder, progress_cb=on_progress)
+            except Exception as exc:
+                res = exc
+
+            def finish():
+                self._scanning = False
+                self.config(cursor="")
+                if isinstance(res, Exception):
+                    messagebox.showerror("Scan error", f"Could not scan folder:\n{res}")
+                    self.lib_label.config(text=f"  {len(self.library):,} samples found")
+                    return
+                library, size_cache, cat_index, path_cats = res
+                self.library = library
+                self._size_cache = size_cache
+                self.cat_index = cat_index
+                self.path_cats = path_cats
+                self.lib_label.config(text=f"  {len(self.library):,} samples found")
+                self._aud_cache.clear()
+                if self._aud_win is not None and self._aud_win.winfo_exists() and self._aud_refill:
+                    self._aud_refill()
+                for cat, b in self.cat_buttons.items():
+                    n = len(self.cat_index.get(cat, ()))
+                    b.config(text=f"{cat} ({n})")
+
+            self.after(0, finish)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     # ------------------------------------------------------ size preference
     def len_scale(self):
@@ -443,23 +543,39 @@ class App(tk.Tk):
             self._size_cache[path] = sz
         return max(sz, MIN_WEIGHT_BYTES)
 
-    def weighted_shuffle(self, pool):
+    def weighted_shuffle(self, pool, max_pick=None):
         """Random order in which pool.pop() (the END of the list) returns the preferred
-        sample first: small files in the default mode, large files in LARGER mode."""
-        def key(p):
-            sz = self.file_size(p)
-            w = (sz if self.favor_large else 1.0 / sz) ** FAVOR_STRENGTH
-            # weighted random sampling without replacement (Efraimidis-Spirakis, log form)
+        sample first: small files in the default mode, large files in LARGER mode.
+        When max_pick is set and pool is huge, selects top max_pick via O(N) heap instead of full sort."""
+        favor_large = self.favor_large
+        size_cache = self._size_cache
+
+        def weight_key(p):
+            sz = size_cache.get(p)
+            if sz is None:
+                sz = self.file_size(p)
+            elif sz < MIN_WEIGHT_BYTES:
+                sz = MIN_WEIGHT_BYTES
+            w = (sz if favor_large else 1.0 / sz) ** FAVOR_STRENGTH
             return math.log(random.random() or 1e-300) / w
-        pool.sort(key=key)
+
+        if max_pick is not None and len(pool) > max_pick * 2:
+            top = heapq.nlargest(max_pick, pool, key=weight_key)
+            top.reverse()
+            pool[:] = top
+        else:
+            pool.sort(key=weight_key)
 
     def candidates(self, cat):
         used = {s["path"] for s in self.slots if s} | self.exclude
         if cat == "Any":
-            pool = [p for p, _ in self.library]
-        else:
-            pool = [p for p, cs in self.library if cat in cs]
-        return [p for p in pool if p not in used]
+            if not used:
+                return [p for p, _ in self.library]
+            return [p for p, _ in self.library if p not in used]
+        cat_paths = self.cat_index.get(cat, ())
+        if not used:
+            return list(cat_paths)
+        return [p for p in cat_paths if p not in used]
 
     def open_audition(self):
         """Non-modal window: browse the library by category, hear samples, add the keepers."""
@@ -487,6 +603,13 @@ class App(tk.Tk):
         auto_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(top, text="Auto-play on select", variable=auto_var).pack(side="left", padx=6)
 
+        search_bar = ttk.Frame(win, padding=(6, 0, 6, 4))
+        search_bar.pack(fill="x")
+        ttk.Label(search_bar, text="Search:").pack(side="left")
+        search_var = tk.StringVar(value="")
+        search_entry = ttk.Entry(search_bar, textvariable=search_var)
+        search_entry.pack(side="left", fill="x", expand=True, padx=(6, 0))
+
         mid = ttk.Frame(win, padding=(6, 0))
         mid.pack(fill="both", expand=True)
         lb = tk.Listbox(mid, exportselection=False, activestyle="dotbox")
@@ -500,7 +623,8 @@ class App(tk.Tk):
         ttk.Label(win, text="Up/Down = browse   Space = replay   Enter = add to next empty slot   * = already in a slot",
                   padding=(6, 0)).pack(anchor="w")
 
-        state = {"paths": [], "cats": {}}
+        MAX_AUD_ROWS = 2000
+        state = {"paths": []}
 
         def selected_path():
             sel = lb.curselection()
@@ -510,28 +634,48 @@ class App(tk.Tk):
             c = cat_var.get()
             if c != "All":
                 return c
-            cs = state["cats"].get(path)
+            cs = self.path_cats.get(path)
             return sorted(cs)[0] if cs else "Any"
 
         def refill(keep=False):
             old_sel = selected_path() if keep else None
             old_top = lb.yview()[0] if keep else 0.0
             c = cat_var.get()
+            q = search_var.get().strip().lower()
             used = {s["path"] for s in self.slots if s}
-            state["cats"] = {p: cs for p, cs in self.library}
-            paths = [p for p, cs in self.library if c == "All" or c in cs]
-            paths.sort(key=lambda p: os.path.basename(p).lower())
-            state["paths"] = paths
+
+            if c == "All":
+                src_paths = (p for p, _ in self.library)
+            else:
+                src_paths = self.cat_index.get(c, ())
+
+            if q:
+                matches = [p for p in src_paths if q in os.path.basename(p).lower()]
+            else:
+                matches = list(src_paths)
+
+            total_matches = len(matches)
+            if total_matches > MAX_AUD_ROWS:
+                shown = matches[:MAX_AUD_ROWS]
+            else:
+                shown = matches
+            shown.sort(key=lambda p: os.path.basename(p).lower())
+            state["paths"] = shown
+
             lb.delete(0, "end")
-            for p in paths:
+            for p in shown:
                 lb.insert("end", ("* " if p in used else "   ") + os.path.basename(p))
-            if old_sel in paths:
-                i = paths.index(old_sel)
+
+            if old_sel in shown:
+                i = shown.index(old_sel)
                 lb.selection_set(i)
                 lb.activate(i)
                 lb.yview_moveto(old_top)
             elif not keep:
-                info_var.set(f"{len(paths)} samples")
+                if total_matches > MAX_AUD_ROWS:
+                    info_var.set(f"Showing first {MAX_AUD_ROWS:,} of {total_matches:,} samples — filter by Category or Search")
+                else:
+                    info_var.set(f"{total_matches:,} samples")
 
         def load_for_audition(path):
             cat = cat_for(path)
@@ -631,6 +775,7 @@ class App(tk.Tk):
         ttk.Button(btns, text="Add to next empty slot", command=add_next).pack(side="right", padx=4)
 
         cb.bind("<<ComboboxSelected>>", lambda e: refill())
+        search_var.trace_add("write", lambda *_: refill())
         lb.bind("<<ListboxSelect>>", on_select)
         lb.bind("<Return>", add_next)
         lb.bind("<space>", lambda e: (play(), "break")[1])
@@ -723,7 +868,7 @@ class App(tk.Tk):
             return
         
         pool = self.candidates(cat)
-        self.weighted_shuffle(pool)
+        self.weighted_shuffle(pool, max_pick=128)
         if not pool:
             messagebox.showinfo("Nothing found", f"No unused '{cat}' samples in your library.")
             return
@@ -752,7 +897,7 @@ class App(tk.Tk):
         
         for cat, count in AUTOFILL_PLAN:
             pool = self.candidates(cat)
-            self.weighted_shuffle(pool)
+            self.weighted_shuffle(pool, max_pick=max(64, count * 16))
             for _ in range(count):
                 empties = [i for i, s in enumerate(self.slots) if s is None]
                 if not empties or not pool:
@@ -762,7 +907,7 @@ class App(tk.Tk):
                         break
         
         pool = self.candidates("Any")
-        self.weighted_shuffle(pool)
+        self.weighted_shuffle(pool, max_pick=512)
         for idx in [i for i, s in enumerate(self.slots) if s is None]:
             while pool:
                 if self.put_sample(idx, pool.pop(), "Any"):
@@ -787,7 +932,7 @@ class App(tk.Tk):
             return
         cat = self.slots[i]["cat"] if self.slots[i] else "Any"
         pool = self.candidates(cat)
-        self.weighted_shuffle(pool)
+        self.weighted_shuffle(pool, max_pick=64)
         old = self.slots[i]
         
         while pool:
